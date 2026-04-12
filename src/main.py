@@ -1,15 +1,19 @@
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 from .database import engine, Base, get_db
+from . import models
 
 # Crear todas las tablas en la base de datos
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Backend API - Primer Parcial SI2",
-    description="API inicial generada con FastAPI y PostgreSQL",
+    description="API con Sistema de Login usando JWT y Base de Datos PostgreSQL",
     version="1.0.0"
 )
+
+from .routers import auth
+app.include_router(auth.router)
 
 @app.get("/")
 def read_root():
