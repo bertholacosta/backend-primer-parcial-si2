@@ -6,6 +6,7 @@ from datetime import date
 class Token(BaseModel):
     access_token: str
     token_type: str
+    role: Optional[str] = None
 
 class TokenData(BaseModel):
     correo: Optional[str] = None
@@ -75,6 +76,15 @@ class ConductorBase(BaseModel):
 
 class ConductorCreate(ConductorBase):
     IdUsuario: int
+
+# Schema unificado especial para registro desde Flutter
+class ConductorRegistro(BaseModel):
+    Correo: str
+    Password: str
+    CI: str
+    Nombre: str
+    Apellidos: str
+    Fechanac: date
 
 class Conductor(ConductorBase):
     IdUsuario: int

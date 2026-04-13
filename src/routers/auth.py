@@ -34,7 +34,8 @@ def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depen
     access_token = create_access_token(
         data={"sub": user.Correo}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    role_name = user.rol.Nombre if user.rol else None
+    return {"access_token": access_token, "token_type": "bearer", "role": role_name}
 
 # Ruta adicionada convenientemente para poder testear el login fácilmente
 @router.post("/registrar", response_model=dict)
@@ -59,3 +60,36 @@ def register_user(usuario: schemas.UsuarioCreate, db: Session = Depends(get_db))
     db.add(new_user)
     db.commit()
     return {"message": "Usuario registrado exitosamente"}
+
+@router.post("/registrar-conductor", response_model=dict)
+def register_conductor(conductor_data: schemas.ConductorRegistro, db: Session = Depends(get_db)):
+    # Buscar si existe el rol Conductor, de lo contrario crearlo
+    rol = db.query(models.Rol).filter(models.Rol.Nombre == "Conductor").first()
+    if not rol:
+        rol = models.Rol(Nombre="Conductor")
+        db.add(rol)
+        db.commit()
+        db.refresh(rol)
+
+    # Validar correo existente en Usuario
+    if db.query(models.Usuario).filter(models.Usuario.Correo == conductor_data.Correo).first():
+        raise HTTPException(status_code=400, detail="Este correo ya está registrado en el sistema")
+
+    # Crear Usuario en DB
+    hashed_pass = get_password_hash(conductor_data.Password)
+    new_user = models.Usuario(Correo=conductor_data.Correo, Password=hashed_pass, IdRol=rol.Id)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    # Crear el Perfil del Conductor en DB y enlazar a Usuario
+    nuevo_conductor = models.Conductor(
+        IdUsuario=new_user.Id,
+        CI=conductor_data.CI,
+        Nombre=conductor_data.Nombre,
+        Apellidos=conductor_data.Apellidos,
+        Fechanac=conductor_data.Fechanac
+    )
+    db.add(nuevo_conductor)
+    db.commit()
+    return {"message": "Conductor registrado exitosamente"}

@@ -6,10 +6,21 @@ from . import models
 # Crear todas las tablas en la base de datos
 Base.metadata.create_all(bind=engine)
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(
     title="Backend API - Primer Parcial SI2",
     description="API con Sistema de Login usando JWT y Base de Datos PostgreSQL",
     version="1.0.0"
+)
+
+# Habilitar CORS para permitir llamadas estáticas o locales desde Angular
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 from .routers import auth
