@@ -35,7 +35,13 @@ def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depen
         data={"sub": user.Correo}, expires_delta=access_token_expires
     )
     role_name = user.rol.Nombre if user.rol else None
-    return {"access_token": access_token, "token_type": "bearer", "role": role_name}
+    permisos_list = [p.Nombre for p in user.rol.permisos] if user.rol and user.rol.permisos else []
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer", 
+        "role": role_name,
+        "permisos": permisos_list
+    }
 
 # Ruta adicionada convenientemente para poder testear el login fácilmente
 @router.post("/registrar", response_model=dict)

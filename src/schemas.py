@@ -7,6 +7,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str
     role: Optional[str] = None
+    permisos: Optional[List[str]] = []
 
 class TokenData(BaseModel):
     correo: Optional[str] = None
@@ -45,6 +46,11 @@ class UsuarioBase(BaseModel):
 
 class UsuarioCreate(UsuarioBase):
     Password: str
+
+class UsuarioUpdate(BaseModel):
+    Correo: Optional[str] = None
+    Password: Optional[str] = None
+    IdRol: Optional[int] = None
 
 class Usuario(UsuarioBase):
     Id: int
