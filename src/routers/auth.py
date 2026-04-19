@@ -99,3 +99,42 @@ def register_conductor(conductor_data: schemas.ConductorRegistro, db: Session = 
     db.add(nuevo_conductor)
     db.commit()
     return {"message": "Conductor registrado exitosamente"}
+
+@router.post("/registrar-taller", response_model=dict)
+def register_taller(taller_data: schemas.TallerRegistro, db: Session = Depends(get_db)):
+    # Buscar si existe el rol Taller, de lo contrario crearlo
+    rol = db.query(models.Rol).filter(models.Rol.Nombre == "Taller").first()
+    if not rol:
+        rol = models.Rol(Nombre="Taller")
+        # Asegurarnos de que el nuevo rol Taller nazca con permiso de Gestionar Mecanicos si existe
+        permiso = db.query(models.Permiso).filter(models.Permiso.Nombre == "Gestionar Mecanicos").first()
+        if permiso:
+            rol.permisos.append(permiso)
+        db.add(rol)
+        db.commit()
+        db.refresh(rol)
+
+    # Validar correo existente en Usuario
+    if db.query(models.Usuario).filter(models.Usuario.Correo == taller_data.Correo).first():
+        raise HTTPException(status_code=400, detail="Este correo ya está registrado por otra cuenta")
+
+    # Crear Usuario en DB
+    hashed_pass = get_password_hash(taller_data.Password)
+    new_user = models.Usuario(Correo=taller_data.Correo, Password=hashed_pass, IdRol=rol.Id)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    # Crear Perfil de Taller
+    nuevo_taller = models.Taller(
+        IdUsuario=new_user.Id,
+        Nombre=taller_data.Nombre,
+        Direccion=taller_data.Direccion,
+        Coordenadas=taller_data.Coordenadas,
+        Cap=taller_data.Cap if taller_data.Cap is not None else 0,
+        Capmax=taller_data.Capmax if taller_data.Capmax is not None else 10
+    )
+    db.add(nuevo_taller)
+    db.commit()
+    
+    return {"message": "Taller registrado exitosamente. Ahora puede iniciar sesión."}

@@ -45,6 +45,7 @@ class Usuario(Base):
     administrador = relationship("Administrador", uselist=False, back_populates="usuario")
     conductor = relationship("Conductor", uselist=False, back_populates="usuario")
     vehiculos = relationship("Vehiculo", back_populates="usuario")
+    mecanico = relationship("Mecanico", uselist=False, back_populates="usuario")
 
 class Taller(Base):
     __tablename__ = 'Taller'
@@ -58,6 +59,7 @@ class Taller(Base):
     IdUsuario = Column(Integer, ForeignKey('Usuario.Id'), nullable=False)
 
     usuario = relationship("Usuario", back_populates="talleres")
+    mecanicos = relationship("Mecanico", back_populates="taller")
 
 
 class Administrador(Base):
@@ -94,3 +96,17 @@ class Vehiculo(Base):
     IdUsuario = Column(Integer, ForeignKey('Usuario.Id'), nullable=False)
 
     usuario = relationship("Usuario", back_populates="vehiculos")
+
+class Mecanico(Base):
+    __tablename__ = 'Mecanico'
+    
+    id = Column(Integer, ForeignKey('Usuario.Id', ondelete="CASCADE"), primary_key=True)
+    ci = Column(Integer, nullable=False)
+    extci = Column(String(2))
+    nombre = Column(String(255), nullable=False)
+    apellidos = Column(String(255), nullable=False)
+    fechanac = Column(Integer)
+    taller_id = Column(Integer, ForeignKey('Taller.Id', ondelete="SET NULL"), nullable=True)
+
+    usuario = relationship("Usuario", back_populates="mecanico")
+    taller = relationship("Taller", back_populates="mecanicos")

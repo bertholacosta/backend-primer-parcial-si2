@@ -134,3 +134,33 @@ class Taller(TallerBase):
 
     class Config:
         from_attributes = True
+
+class TallerRegistro(TallerBase):
+    Correo: str
+    Password: str
+
+# --- Esquemas para Mecanico ---
+class MecanicoBase(BaseModel):
+    ci: int
+    extci: Optional[str] = None
+    nombre: str
+    apellidos: str
+    fechanac: Optional[int] = None
+
+class MecanicoUpdate(BaseModel):
+    ci: Optional[int] = None
+    extci: Optional[str] = None
+    nombre: Optional[str] = None
+    apellidos: Optional[str] = None
+    fechanac: Optional[int] = None
+
+class MecanicoRegistro(MecanicoBase):
+    correo: str
+    password: str
+
+class MecanicoOut(MecanicoBase):
+    id: int
+    taller_id: Optional[int] = None
+
+    class Config:
+        from_attributes = True
