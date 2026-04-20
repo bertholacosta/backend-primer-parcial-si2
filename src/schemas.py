@@ -108,11 +108,10 @@ class VehiculoBase(BaseModel):
     Año: Optional[int] = None
 
 class VehiculoCreate(VehiculoBase):
-    IdUsuario: int
+    pass
 
 class Vehiculo(VehiculoBase):
     Id: int
-    IdUsuario: int
 
     class Config:
         from_attributes = True
@@ -164,3 +163,38 @@ class MecanicoOut(MecanicoBase):
 
     class Config:
         from_attributes = True
+
+# --- Esquemas para Incidentes y Evidencias ---
+class EvidenciaBase(BaseModel):
+    audio: Optional[str] = None
+    descripcion: Optional[str] = None
+    fotos: Optional[str] = None
+
+class EvidenciaCreate(EvidenciaBase):
+    pass
+
+class Evidencia(EvidenciaBase):
+    id: int
+    incidente_id: int
+
+    class Config:
+        from_attributes = True
+
+class IncidenteBase(BaseModel):
+    coordenadagps: Optional[str] = None
+    estado: Optional[str] = "Reportado"
+    fecha: Optional[str] = None
+
+class IncidenteCreate(IncidenteBase):
+    vehiculo_id: int # El frontend nos pasará el vehículo afectado. Buscarémos el vehiculoconductor correspondiente.
+    evidencia: EvidenciaBase
+
+class Incidente(IncidenteBase):
+    id: int
+    vehiculoconductor_id: int
+    taller_id: Optional[int] = None
+    evidencias: List[Evidencia] = []
+
+    class Config:
+        from_attributes = True
+

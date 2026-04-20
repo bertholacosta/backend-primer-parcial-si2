@@ -59,7 +59,6 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     db.query(models.Administrador).filter(models.Administrador.IdUsuario == user_id).delete()
     db.query(models.Conductor).filter(models.Conductor.IdUsuario == user_id).delete()
     db.query(models.Taller).filter(models.Taller.IdUsuario == user_id).delete()
-    db.query(models.Vehiculo).filter(models.Vehiculo.IdUsuario == user_id).delete()
 
     db.delete(user)
     db.commit()
