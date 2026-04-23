@@ -198,3 +198,53 @@ class Incidente(IncidenteBase):
     class Config:
         from_attributes = True
 
+# --- Esquemas para Gestión de Solicitudes ---
+class TallerDisponible(BaseModel):
+    Id: int
+    Nombre: str
+    Direccion: str
+    Coordenadas: Optional[str] = None
+    Cap: Optional[int] = None
+    Capmax: Optional[int] = None
+    distancia_km: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+class TallerEnIncidente(BaseModel):
+    Id: int
+    Nombre: str
+    Direccion: str
+    Coordenadas: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class IncidenteDetalle(IncidenteBase):
+    id: int
+    vehiculoconductor_id: int
+    taller_id: Optional[int] = None
+    evidencias: List[Evidencia] = []
+    taller: Optional[TallerEnIncidente] = None
+
+    class Config:
+        from_attributes = True
+
+class AsignarTaller(BaseModel):
+    taller_id: int
+
+# --- Esquemas para Bitacora ---
+class BitacoraBase(BaseModel):
+    accion: Optional[str] = None
+    descripcion: Optional[str] = None
+
+class BitacoraOut(BitacoraBase):
+    id: int
+    fecha: Optional[date] = None
+    ip: Optional[str] = None
+    usuario_id: Optional[int] = None
+    usuario_correo: Optional[str] = None
+    usuario_rol: Optional[str] = None
+
+    class Config:
+        from_attributes = True

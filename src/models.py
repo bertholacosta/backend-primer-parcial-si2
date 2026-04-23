@@ -47,6 +47,7 @@ class Usuario(Base):
     administrador = relationship("Administrador", uselist=False, back_populates="usuario")
     conductor = relationship("Conductor", uselist=False, back_populates="usuario")
     mecanico = relationship("Mecanico", uselist=False, back_populates="usuario")
+    bitacoras = relationship("Bitacora", back_populates="usuario")
 
 class Taller(Base):
     __tablename__ = 'Taller'
@@ -123,6 +124,7 @@ class Incidente(Base):
 
     vehiculoconductor = relationship("VehiculoConductor", back_populates="incidentes")
     evidencias = relationship("Evidencia", back_populates="incidente", cascade="all, delete-orphan")
+    taller = relationship("Taller", foreign_keys=[taller_id])
 
 class Evidencia(Base):
     __tablename__ = 'Evidencia'
@@ -148,3 +150,16 @@ class Mecanico(Base):
 
     usuario = relationship("Usuario", back_populates="mecanico")
     taller = relationship("Taller", back_populates="mecanicos")
+
+
+class Bitacora(Base):
+    __tablename__ = 'Bitacora'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    accion = Column(String(255))
+    descripcion = Column(String(255))
+    fecha = Column(Date)
+    ip = Column(String(255))
+    usuario_id = Column(Integer, ForeignKey('Usuario.Id', ondelete="CASCADE"))
+
+    usuario = relationship("Usuario", back_populates="bitacoras")

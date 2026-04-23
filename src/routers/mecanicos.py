@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -6,6 +6,7 @@ from ..database import get_db
 from .. import models, schemas
 from ..security import get_password_hash
 from ..deps import get_current_user
+from ..bitacora_util import registrar_bitacora
 
 router = APIRouter(
     prefix="/mecanicos",
@@ -29,7 +30,7 @@ def get_mecanicos_by_taller(db: Session = Depends(get_db), current_user: models.
         raise HTTPException(status_code=403, detail="No autorizado para visualizar mecánicos")
 
 @router.post("/", response_model=schemas.MecanicoOut, status_code=status.HTTP_201_CREATED)
-def create_mecanico(mecanico_data: schemas.MecanicoRegistro, db: Session = Depends(get_db), current_user: models.Usuario = Depends(get_current_user)):
+def create_mecanico(request: Request, mecanico_data: schemas.MecanicoRegistro, db: Session = Depends(get_db), current_user: models.Usuario = Depends(get_current_user)):
     """Registra y asigna un mecánico al Taller que ejecuta la petición."""
     taller = db.query(models.Taller).filter(models.Taller.IdUsuario == current_user.Id).first()
     if not taller:
@@ -67,10 +68,16 @@ def create_mecanico(mecanico_data: schemas.MecanicoRegistro, db: Session = Depen
     db.add(nuevo_mecanico)
     db.commit()
     db.refresh(nuevo_mecanico)
+
+    registrar_bitacora(
+        db, current_user.Id, "Crear Mecánico",
+        f"Registró al mecánico {mecanico_data.nombre} {mecanico_data.apellidos}",
+        ip=request.client.host if request.client else "0.0.0.0"
+    )
     return nuevo_mecanico
 
 @router.put("/{mecanico_id}", response_model=schemas.MecanicoOut)
-def update_mecanico(mecanico_id: int, m_update: schemas.MecanicoUpdate, db: Session = Depends(get_db), current_user: models.Usuario = Depends(get_current_user)):
+def update_mecanico(request: Request, mecanico_id: int, m_update: schemas.MecanicoUpdate, db: Session = Depends(get_db), current_user: models.Usuario = Depends(get_current_user)):
     """Edita info de un mecanico (solo por admin o por el taller dueño)."""
     mecanico = db.query(models.Mecanico).filter(models.Mecanico.id == mecanico_id).first()
     if not mecanico:
@@ -95,10 +102,16 @@ def update_mecanico(mecanico_id: int, m_update: schemas.MecanicoUpdate, db: Sess
 
     db.commit()
     db.refresh(mecanico)
+
+    registrar_bitacora(
+        db, current_user.Id, "Editar Mecánico",
+        f"Editó al mecánico #{mecanico_id}",
+        ip=request.client.host if request.client else "0.0.0.0"
+    )
     return mecanico
 
 @router.delete("/{mecanico_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_mecanico(mecanico_id: int, db: Session = Depends(get_db), current_user: models.Usuario = Depends(get_current_user)):
+def delete_mecanico(request: Request, mecanico_id: int, db: Session = Depends(get_db), current_user: models.Usuario = Depends(get_current_user)):
     """Da de baja a un mecánico eliminando su perfil y su usuario base."""
     mecanico = db.query(models.Mecanico).filter(models.Mecanico.id == mecanico_id).first()
     if not mecanico:
@@ -121,4 +134,10 @@ def delete_mecanico(mecanico_id: int, db: Session = Depends(get_db), current_use
         db.delete(base_user)
 
     db.commit()
+
+    registrar_bitacora(
+        db, current_user.Id, "Eliminar Mecánico",
+        f"Dio de baja al mecánico #{mecanico_id}",
+        ip=request.client.host if request.client else "0.0.0.0"
+    )
     return None

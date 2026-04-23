@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
@@ -7,6 +7,7 @@ from typing import Annotated
 from ..database import get_db
 from .. import models, schemas
 from ..security import verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, get_password_hash
+from ..bitacora_util import registrar_bitacora
 
 # El Router para gestionar los endpoints
 router = APIRouter(
@@ -18,7 +19,7 @@ router = APIRouter(
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 @router.post("/login", response_model=schemas.Token)
-def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Session = Depends(get_db)):
+def login_for_access_token(request: Request, form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Session = Depends(get_db)):
     # OAuth2PasswordRequestForm usa 'username' y 'password' por defecto. Interpretamos username como correo.
     user = db.query(models.Usuario).filter(models.Usuario.Correo == form_data.username).first()
     
@@ -36,6 +37,13 @@ def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depen
     )
     role_name = user.rol.Nombre if user.rol else None
     permisos_list = [p.Nombre for p in user.rol.permisos] if user.rol and user.rol.permisos else []
+    # Registrar en bitácora
+    registrar_bitacora(
+        db, user.Id, "Inicio de Sesión",
+        f"El usuario {user.Correo} inició sesión",
+        ip=request.client.host if request.client else "0.0.0.0"
+    )
+
     return {
         "access_token": access_token, 
         "token_type": "bearer", 
@@ -68,7 +76,7 @@ def register_user(usuario: schemas.UsuarioCreate, db: Session = Depends(get_db))
     return {"message": "Usuario registrado exitosamente"}
 
 @router.post("/registrar-conductor", response_model=dict)
-def register_conductor(conductor_data: schemas.ConductorRegistro, db: Session = Depends(get_db)):
+def register_conductor(request: Request, conductor_data: schemas.ConductorRegistro, db: Session = Depends(get_db)):
     # Buscar si existe el rol Conductor, de lo contrario crearlo
     rol = db.query(models.Rol).filter(models.Rol.Nombre == "Conductor").first()
     if not rol:
@@ -98,10 +106,16 @@ def register_conductor(conductor_data: schemas.ConductorRegistro, db: Session = 
     )
     db.add(nuevo_conductor)
     db.commit()
+
+    registrar_bitacora(
+        db, new_user.Id, "Registro",
+        f"Nuevo conductor registrado: {conductor_data.Nombre} {conductor_data.Apellidos}",
+        ip=request.client.host if request.client else "0.0.0.0"
+    )
     return {"message": "Conductor registrado exitosamente"}
 
 @router.post("/registrar-taller", response_model=dict)
-def register_taller(taller_data: schemas.TallerRegistro, db: Session = Depends(get_db)):
+def register_taller(request: Request, taller_data: schemas.TallerRegistro, db: Session = Depends(get_db)):
     # Buscar si existe el rol Taller, de lo contrario crearlo
     rol = db.query(models.Rol).filter(models.Rol.Nombre == "Taller").first()
     if not rol:
@@ -136,5 +150,11 @@ def register_taller(taller_data: schemas.TallerRegistro, db: Session = Depends(g
     )
     db.add(nuevo_taller)
     db.commit()
+
+    registrar_bitacora(
+        db, new_user.Id, "Registro",
+        f"Nuevo taller registrado: {taller_data.Nombre}",
+        ip=request.client.host if request.client else "0.0.0.0"
+    )
     
     return {"message": "Taller registrado exitosamente. Ahora puede iniciar sesión."}
