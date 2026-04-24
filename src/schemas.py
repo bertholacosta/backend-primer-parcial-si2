@@ -248,3 +248,83 @@ class BitacoraOut(BitacoraBase):
 
     class Config:
         from_attributes = True
+
+# --- Esquemas para Notificacion ---
+class NotificacionBase(BaseModel):
+    descripcion: Optional[str] = None
+    estado: Optional[str] = "No leída"
+    fecha: Optional[str] = None
+    titulo: Optional[str] = None
+
+class NotificacionCreate(NotificacionBase):
+    pass
+
+class NotificacionOut(NotificacionBase):
+    id: int
+    usuario_id: int
+
+    class Config:
+        from_attributes = True
+
+class FCMTokenUpdate(BaseModel):
+    fcm_token: str
+
+# --- Esquemas para Perfil de Usuario ---
+class AdminProfileData(BaseModel):
+    Usuario: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class TallerProfileData(BaseModel):
+    Id: Optional[int] = None
+    Nombre: Optional[str] = None
+    Direccion: Optional[str] = None
+    Coordenadas: Optional[str] = None
+    Cap: Optional[int] = None
+    Capmax: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+class ConductorProfileData(BaseModel):
+    CI: Optional[str] = None
+    Nombre: Optional[str] = None
+    Apellidos: Optional[str] = None
+    Fechanac: Optional[date] = None
+
+    class Config:
+        from_attributes = True
+
+class ProfileOut(BaseModel):
+    Id: int
+    Correo: str
+    rol_nombre: Optional[str] = None
+    administrador: Optional[AdminProfileData] = None
+    taller: Optional[TallerProfileData] = None
+    conductor: Optional[ConductorProfileData] = None
+
+    class Config:
+        from_attributes = True
+
+class ProfileUpdate(BaseModel):
+    Correo: Optional[str] = None
+    Password: Optional[str] = None
+    # Datos de Administrador
+    admin_usuario: Optional[str] = None
+    # Datos de Taller
+    taller_nombre: Optional[str] = None
+    taller_direccion: Optional[str] = None
+    taller_coordenadas: Optional[str] = None
+    taller_cap: Optional[int] = None
+    taller_capmax: Optional[int] = None
+    # Datos de Conductor
+    conductor_ci: Optional[str] = None
+    conductor_nombre: Optional[str] = None
+    conductor_apellidos: Optional[str] = None
+    conductor_fechanac: Optional[date] = None
+
+class UbicacionUpdate(BaseModel):
+    Coordenadas: str
+    Direccion: Optional[str] = None
+

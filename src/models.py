@@ -40,6 +40,7 @@ class Usuario(Base):
     Correo = Column(String(255), nullable=False, unique=True, index=True)
     Password = Column(String(255), nullable=False)
     IdRol = Column(Integer, ForeignKey('Rol.Id'), nullable=False)
+    fcm_token = Column(String(255), nullable=True)
 
     # Relaciones
     rol = relationship("Rol", back_populates="usuarios")
@@ -48,6 +49,7 @@ class Usuario(Base):
     conductor = relationship("Conductor", uselist=False, back_populates="usuario")
     mecanico = relationship("Mecanico", uselist=False, back_populates="usuario")
     bitacoras = relationship("Bitacora", back_populates="usuario")
+    notificaciones = relationship("Notificacion", back_populates="usuario", cascade="all, delete-orphan")
 
 class Taller(Base):
     __tablename__ = 'Taller'
@@ -163,3 +165,15 @@ class Bitacora(Base):
     usuario_id = Column(Integer, ForeignKey('Usuario.Id', ondelete="CASCADE"))
 
     usuario = relationship("Usuario", back_populates="bitacoras")
+
+class Notificacion(Base):
+    __tablename__ = 'Notificacion'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    descripcion = Column(String(500))
+    estado = Column(String(100), default="No leída")
+    fecha = Column(String(50))
+    titulo = Column(String(255))
+    usuario_id = Column(Integer, ForeignKey('Usuario.Id', ondelete="CASCADE"), nullable=False)
+
+    usuario = relationship("Usuario", back_populates="notificaciones")

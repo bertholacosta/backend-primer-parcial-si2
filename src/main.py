@@ -23,7 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from src.routers import auth, users, roles, mecanicos, vehiculos, incidentes, bitacora
+from src.routers import auth, users, roles, mecanicos, vehiculos, incidentes, bitacora, notificaciones, profile
 
 app.include_router(auth.router)
 app.include_router(users.router)
@@ -32,6 +32,8 @@ app.include_router(mecanicos.router)
 app.include_router(vehiculos.router)
 app.include_router(incidentes.router)
 app.include_router(bitacora.router)
+app.include_router(notificaciones.router)
+app.include_router(profile.router)
 
 @app.get("/")
 def read_root():
