@@ -230,6 +230,9 @@ class IncidenteDetalle(IncidenteBase):
     class Config:
         from_attributes = True
 
+class IncidentePendiente(IncidenteDetalle):
+    distancia_km: Optional[float] = None
+
 class AsignarTaller(BaseModel):
     taller_id: int
 

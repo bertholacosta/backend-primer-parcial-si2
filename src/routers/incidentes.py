@@ -14,6 +14,60 @@ router = APIRouter(
 )
 
 
+@router.get("/solicitudes-pendientes", response_model=List[schemas.IncidentePendiente])
+def solicitudes_pendientes(
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user)
+):
+    """Devuelve todos los incidentes con estado 'Reportado' para que los talleres puedan ofrecer cotización, con distancia calculada."""
+    # Validar que sea un taller
+    if not current_user.talleres:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres pueden ver solicitudes pendientes")
+
+    # Obtener coordenadas del taller del usuario
+    taller_usuario = current_user.talleres[0]  # Primer taller del usuario
+    taller_lat, taller_lng = None, None
+    if taller_usuario.Coordenadas:
+        try:
+            parts = taller_usuario.Coordenadas.replace(" ", "").split(",")
+            taller_lat = float(parts[0])
+            taller_lng = float(parts[1])
+        except (ValueError, IndexError):
+            pass
+
+    incidentes = (
+        db.query(models.Incidente)
+        .options(joinedload(models.Incidente.evidencias), joinedload(models.Incidente.taller))
+        .filter(models.Incidente.estado == "Reportado")
+        .order_by(models.Incidente.id.desc())
+        .all()
+    )
+
+    # Calcular distancia para cada incidente
+    resultado = []
+    for inc in incidentes:
+        distancia = None
+        if taller_lat is not None and taller_lng is not None and inc.coordenadagps:
+            try:
+                inc_parts = inc.coordenadagps.replace(" ", "").split(",")
+                inc_lat = float(inc_parts[0])
+                inc_lng = float(inc_parts[1])
+                distancia = round(_haversine(taller_lat, taller_lng, inc_lat, inc_lng), 1)
+            except (ValueError, IndexError):
+                pass
+
+        # Convertir ORM a dict para agregar el campo extra
+        inc_data = schemas.IncidentePendiente.model_validate(inc)
+        inc_data.distancia_km = distancia
+        resultado.append(inc_data)
+
+    # Ordenar por distancia (los más cercanos primero, sin distancia al final)
+    resultado.sort(key=lambda x: x.distancia_km if x.distancia_km is not None else 99999)
+
+    return resultado
+
+
+
 def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calcula la distancia en km entre dos coordenadas GPS usando la fórmula de Haversine."""
     R = 6371  # Radio de la Tierra en km
@@ -183,6 +237,48 @@ def asignar_taller(
     if taller.Cap is not None:
         taller.Cap = (taller.Cap or 0) + 1
 
+    db.commit()
+    db.refresh(incidente)
+
+    return incidente
+
+
+@router.patch("/{incidente_id}/cancelar", response_model=schemas.IncidenteDetalle)
+def cancelar_incidente(
+    incidente_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user)
+):
+    """Permite al conductor cancelar una solicitud pendiente (Reportado o Asignado)."""
+    if not current_user.conductor:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo conductores pueden cancelar incidentes")
+
+    # Verificar que el incidente pertenece al conductor
+    vc_ids = [vc.id for vc in current_user.conductor.vehiculo_conductores]
+    incidente = (
+        db.query(models.Incidente)
+        .options(joinedload(models.Incidente.evidencias), joinedload(models.Incidente.taller))
+        .filter(models.Incidente.id == incidente_id, models.Incidente.vehiculoconductor_id.in_(vc_ids))
+        .first()
+    )
+
+    if not incidente:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incidente no encontrado o no te pertenece")
+
+    # Solo se puede cancelar si está en estado Reportado o Asignado
+    if incidente.estado not in ("Reportado", "Asignado"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No se puede cancelar un incidente en estado '{incidente.estado}'. Solo se permiten cancelaciones en estado Reportado o Asignado."
+        )
+
+    # Si tenía taller asignado, liberar la capacidad
+    if incidente.taller_id:
+        taller = db.query(models.Taller).filter(models.Taller.Id == incidente.taller_id).first()
+        if taller and taller.Cap is not None and taller.Cap > 0:
+            taller.Cap = taller.Cap - 1
+
+    incidente.estado = "Cancelado"
     db.commit()
     db.refresh(incidente)
 
