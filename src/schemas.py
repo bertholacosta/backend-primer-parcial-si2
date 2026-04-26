@@ -12,6 +12,16 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     correo: Optional[str] = None
 
+class PasswordResetRequest(BaseModel):
+    correo: str
+
+class PasswordReset(BaseModel):
+    token: str
+    nueva_password: str
+
+class MensajeResponse(BaseModel):
+    message: str
+
 # --- Esquemas para Permiso ---
 class PermisoBase(BaseModel):
     Nombre: str

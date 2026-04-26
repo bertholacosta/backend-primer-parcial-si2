@@ -158,3 +158,62 @@ def register_taller(request: Request, taller_data: schemas.TallerRegistro, db: S
     )
     
     return {"message": "Taller registrado exitosamente. Ahora puede iniciar sesión."}
+
+
+# --- Recuperación de Contraseña ---
+
+@router.post("/solicitar-reset", response_model=schemas.MensajeResponse)
+def solicitar_reset_password(payload: schemas.PasswordResetRequest, db: Session = Depends(get_db)):
+    """Envía un correo con un link para restablecer la contraseña."""
+    user = db.query(models.Usuario).filter(models.Usuario.Correo == payload.correo).first()
+
+    # Siempre retornar éxito para no revelar si el correo existe
+    if not user:
+        return {"message": "Si el correo está registrado, recibirás un enlace para restablecer tu contraseña."}
+
+    # Crear token con expiración de 30 minutos
+    reset_token = create_access_token(
+        data={"sub": user.Correo, "type": "password_reset"},
+        expires_delta=timedelta(minutes=30)
+    )
+
+    # Enviar email
+    try:
+        from ..email_util import enviar_email_reset
+        enviar_email_reset(user.Correo, reset_token)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al enviar el correo: {str(e)}"
+        )
+
+    return {"message": "Si el correo está registrado, recibirás un enlace para restablecer tu contraseña."}
+
+
+@router.post("/restablecer-password", response_model=schemas.MensajeResponse)
+def restablecer_password(payload: schemas.PasswordReset, db: Session = Depends(get_db)):
+    """Restablece la contraseña usando el token enviado por correo."""
+    from jose import JWTError, jwt
+    from .security import SECRET_KEY, ALGORITHM
+
+    try:
+        token_data = jwt.decode(payload.token, SECRET_KEY, algorithms=[ALGORITHM])
+        correo = token_data.get("sub")
+        token_type = token_data.get("type")
+
+        if not correo or token_type != "password_reset":
+            raise HTTPException(status_code=400, detail="Token inválido")
+
+    except JWTError:
+        raise HTTPException(status_code=400, detail="Token inválido o expirado")
+
+    user = db.query(models.Usuario).filter(models.Usuario.Correo == correo).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Actualizar contraseña
+    user.Password = get_password_hash(payload.nueva_password)
+    db.commit()
+
+    return {"message": "Contraseña actualizada exitosamente. Ya puedes iniciar sesión."}
+
