@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Table, Date, Text
+from sqlalchemy import Column, Integer, String, ForeignKey, Table, Date, Text, BigInteger
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -127,6 +127,8 @@ class Incidente(Base):
     vehiculoconductor = relationship("VehiculoConductor", back_populates="incidentes")
     evidencias = relationship("Evidencia", back_populates="incidente", cascade="all, delete-orphan")
     taller = relationship("Taller", foreign_keys=[taller_id])
+    analisis_ia = relationship("AnalisisIA", uselist=False, back_populates="incidente", cascade="all, delete-orphan")
+    cotizaciones = relationship("Cotizacion", back_populates="incidente", cascade="all, delete-orphan")
 
 class Evidencia(Base):
     __tablename__ = 'Evidencia'
@@ -147,7 +149,7 @@ class Mecanico(Base):
     extci = Column(String(2))
     nombre = Column(String(255), nullable=False)
     apellidos = Column(String(255), nullable=False)
-    fechanac = Column(Integer)
+    fechanac = Column(BigInteger)
     taller_id = Column(Integer, ForeignKey('Taller.Id', ondelete="SET NULL"), nullable=True)
 
     usuario = relationship("Usuario", back_populates="mecanico")
@@ -177,3 +179,29 @@ class Notificacion(Base):
     usuario_id = Column(Integer, ForeignKey('Usuario.Id', ondelete="CASCADE"), nullable=False)
 
     usuario = relationship("Usuario", back_populates="notificaciones")
+
+class AnalisisIA(Base):
+    __tablename__ = 'AnalisisIA'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    Clasificacion = Column(String(100), nullable=True)
+    NivelPrioridad = Column(String(50), nullable=True)
+    Resumen = Column(Text, nullable=True)
+    TranscripcionAudio = Column(Text, nullable=True)
+    incidente_id = Column(Integer, ForeignKey('Incidente.id', ondelete="CASCADE"), unique=True)
+
+    incidente = relationship("Incidente", back_populates="analisis_ia")
+
+class Cotizacion(Base):
+    __tablename__ = 'Cotizacion'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    monto = Column(Integer, nullable=True) # Usaremos Integer para simplificar moneda o Float, pondré Integer si todo usa int
+    mensaje = Column(Text, nullable=True)
+    estado = Column(String(50), default="Solicitada") # Solicitada, Ofrecida, Aceptada, Rechazada
+    fecha_creacion = Column(String(50))
+    incidente_id = Column(Integer, ForeignKey('Incidente.id', ondelete="CASCADE"), nullable=False)
+    taller_id = Column(Integer, ForeignKey('Taller.Id', ondelete="CASCADE"), nullable=False)
+
+    incidente = relationship("Incidente", back_populates="cotizaciones")
+    taller = relationship("Taller")

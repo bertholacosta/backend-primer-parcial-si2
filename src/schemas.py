@@ -230,12 +230,45 @@ class TallerEnIncidente(BaseModel):
     class Config:
         from_attributes = True
 
+class AnalisisIAEnIncidente(BaseModel):
+    Clasificacion: Optional[str] = None
+    NivelPrioridad: Optional[str] = None
+    Resumen: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+# --- Esquemas para Cotización ---
+class CotizacionBase(BaseModel):
+    monto: Optional[int] = None
+    mensaje: Optional[str] = None
+    estado: str = "Solicitada"
+    fecha_creacion: Optional[str] = None
+    incidente_id: int
+    taller_id: int
+
+class CotizacionCreate(BaseModel):
+    taller_id: int
+
+class CotizacionOfrecer(BaseModel):
+    monto: int
+    mensaje: Optional[str] = None
+
+class CotizacionOut(CotizacionBase):
+    id: int
+    taller: Optional[TallerEnIncidente] = None
+
+    class Config:
+        from_attributes = True
+
 class IncidenteDetalle(IncidenteBase):
     id: int
     vehiculoconductor_id: int
     taller_id: Optional[int] = None
     evidencias: List[Evidencia] = []
     taller: Optional[TallerEnIncidente] = None
+    analisis_ia: Optional[AnalisisIAEnIncidente] = None
+    cotizaciones: List[CotizacionOut] = []
 
     class Config:
         from_attributes = True

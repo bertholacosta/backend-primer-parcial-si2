@@ -1,14 +1,14 @@
 import os
-from google import genai
+import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # Inicializar cliente
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-client = None
+
 if GEMINI_API_KEY and GEMINI_API_KEY != "pon_tu_api_key_aqui":
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    genai.configure(api_key=GEMINI_API_KEY)
     
 TEXT_MODEL = "gemini-1.5-flash"
 VISION_MODEL = "gemini-1.5-flash"
@@ -21,15 +21,13 @@ def get_model(model_name: str):
         return None
 
 def analizar_evidencia_visual(descripcion: str, imagen_url: str = None) -> str:
-    """
-    Analiza una imagen (y opcionalmente una descripción) para estimar la gravedad del incidente.
-    Nota: En un entorno de producción real, si 'imagen_url' es una URL pública, 
-    podría ser necesario descargarla primero o pasar los bytes al modelo, 
-    pero la versión 1.5 soporta pasarle archivos subidos mediante File API.
-    Para propósitos de esta demo, usaremos texto si no hay manejo directo de imágenes configurado.
-    """
-    if not client:
+    """Analiza una imagen o descripción para estimar gravedad."""
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "pon_tu_api_key_aqui":
         return "⚠️ Configura GEMINI_API_KEY en tu archivo .env para habilitar el análisis por IA."
+
+    model = get_model(VISION_MODEL)
+    if not model:
+         return "Error al cargar el modelo de IA."
 
     prompt = f"""
     Eres un ajustador de seguros experto y mecánico automotriz.
@@ -45,20 +43,19 @@ def analizar_evidencia_visual(descripcion: str, imagen_url: str = None) -> str:
     """
     
     try:
-        response = client.models.generate_content(
-            model=VISION_MODEL,
-            contents=prompt
-        )
+        response = model.generate_content(prompt)
         return response.text
     except Exception as e:
         return f"Error al procesar con IA: {str(e)}"
 
 def generar_reporte_enriquecido(datos_incidente: dict) -> str:
-    """
-    Toma datos crudos de un incidente y genera un reporte narrativo formal.
-    """
-    if not client:
+    """Toma datos crudos y genera un reporte."""
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "pon_tu_api_key_aqui":
         return "⚠️ Configura GEMINI_API_KEY en tu archivo .env para habilitar la generación de reportes."
+
+    model = get_model(TEXT_MODEL)
+    if not model:
+         return "Error al cargar el modelo de IA."
 
     prompt = f"""
     Eres un asistente administrativo del sistema de emergencias vehiculares.
@@ -76,10 +73,7 @@ def generar_reporte_enriquecido(datos_incidente: dict) -> str:
     """
     
     try:
-        response = client.models.generate_content(
-            model=TEXT_MODEL,
-            contents=prompt
-        )
+        response = model.generate_content(prompt)
         return response.text
     except Exception as e:
          return f"Error al generar reporte: {str(e)}"

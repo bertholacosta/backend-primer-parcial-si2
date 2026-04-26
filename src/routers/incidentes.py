@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
+from pydantic import BaseModel
 from typing import List, Optional
 import datetime
 import math
@@ -37,7 +38,12 @@ def solicitudes_pendientes(
 
     incidentes = (
         db.query(models.Incidente)
-        .options(joinedload(models.Incidente.evidencias), joinedload(models.Incidente.taller))
+        .options(
+            joinedload(models.Incidente.evidencias), 
+            joinedload(models.Incidente.taller), 
+            joinedload(models.Incidente.analisis_ia),
+            joinedload(models.Incidente.cotizaciones)
+        )
         .filter(models.Incidente.estado == "Reportado")
         .order_by(models.Incidente.id.desc())
         .all()
@@ -174,7 +180,12 @@ def mis_incidentes(
 
     incidentes = (
         db.query(models.Incidente)
-        .options(joinedload(models.Incidente.evidencias), joinedload(models.Incidente.taller))
+        .options(
+            joinedload(models.Incidente.evidencias), 
+            joinedload(models.Incidente.taller), 
+            joinedload(models.Incidente.analisis_ia),
+            joinedload(models.Incidente.cotizaciones).joinedload(models.Cotizacion.taller)
+        )
         .filter(models.Incidente.vehiculoconductor_id.in_(vc_ids))
         .order_by(models.Incidente.id.desc())
         .all()
@@ -243,7 +254,7 @@ def asignar_taller(
     vc_ids = [vc.id for vc in current_user.conductor.vehiculo_conductores]
     incidente = (
         db.query(models.Incidente)
-        .options(joinedload(models.Incidente.evidencias), joinedload(models.Incidente.taller))
+        .options(joinedload(models.Incidente.evidencias), joinedload(models.Incidente.taller), joinedload(models.Incidente.analisis_ia))
         .filter(models.Incidente.id == incidente_id, models.Incidente.vehiculoconductor_id.in_(vc_ids))
         .first()
     )
@@ -284,7 +295,7 @@ def cancelar_incidente(
     vc_ids = [vc.id for vc in current_user.conductor.vehiculo_conductores]
     incidente = (
         db.query(models.Incidente)
-        .options(joinedload(models.Incidente.evidencias), joinedload(models.Incidente.taller))
+        .options(joinedload(models.Incidente.evidencias), joinedload(models.Incidente.taller), joinedload(models.Incidente.analisis_ia))
         .filter(models.Incidente.id == incidente_id, models.Incidente.vehiculoconductor_id.in_(vc_ids))
         .first()
     )
@@ -310,3 +321,212 @@ def cancelar_incidente(
     db.refresh(incidente)
 
     return incidente
+
+@router.post("/{incidente_id}/solicitar-cotizacion", response_model=schemas.CotizacionOut)
+def solicitar_cotizacion(
+    incidente_id: int,
+    payload: schemas.CotizacionCreate,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user)
+):
+    """El conductor solicita una cotización a un taller específico."""
+    if not current_user.conductor:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo conductores pueden solicitar cotizaciones")
+
+    # Verificar incidente
+    vc_ids = [vc.id for vc in current_user.conductor.vehiculo_conductores]
+    incidente = db.query(models.Incidente).filter(models.Incidente.id == incidente_id, models.Incidente.vehiculoconductor_id.in_(vc_ids)).first()
+    if not incidente:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incidente no encontrado")
+
+    # Verificar si ya existe una cotización de este taller para este incidente
+    existente = db.query(models.Cotizacion).filter(models.Cotizacion.incidente_id == incidente_id, models.Cotizacion.taller_id == payload.taller_id).first()
+    if existente:
+        return existente
+
+    nueva_cotizacion = models.Cotizacion(
+        incidente_id=incidente_id,
+        taller_id=payload.taller_id,
+        estado="Solicitada",
+        fecha_creacion=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    )
+    db.add(nueva_cotizacion)
+    db.commit()
+    db.refresh(nueva_cotizacion)
+    return nueva_cotizacion
+
+@router.post("/{incidente_id}/ofrecer-cotizacion", response_model=schemas.CotizacionOut)
+def ofrecer_cotizacion(
+    incidente_id: int,
+    payload: schemas.CotizacionOfrecer,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user)
+):
+    """El taller ofrece un monto por un incidente."""
+    if not current_user.talleres:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres pueden ofrecer cotizaciones")
+
+    taller_id = current_user.talleres[0].Id
+
+    # Buscar si ya había una solicitud o cotización previa
+    cotizacion = db.query(models.Cotizacion).filter(models.Cotizacion.incidente_id == incidente_id, models.Cotizacion.taller_id == taller_id).first()
+
+    if not cotizacion:
+        cotizacion = models.Cotizacion(
+            incidente_id=incidente_id,
+            taller_id=taller_id,
+            fecha_creacion=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+        db.add(cotizacion)
+
+    cotizacion.monto = payload.monto
+    cotizacion.mensaje = payload.mensaje
+    cotizacion.estado = "Ofrecida"
+    
+    db.commit()
+    db.refresh(cotizacion)
+    return cotizacion
+
+@router.post("/cotizaciones/{cotizacion_id}/aceptar", response_model=schemas.IncidenteDetalle)
+def aceptar_cotizacion(
+    cotizacion_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user)
+):
+    """El conductor acepta una cotización, asignando el taller al incidente."""
+    if not current_user.conductor:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo conductores pueden aceptar cotizaciones")
+
+    cotizacion = db.query(models.Cotizacion).filter(models.Cotizacion.id == cotizacion_id).first()
+    if not cotizacion:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cotización no encontrada")
+
+    # Verificar que el incidente pertenece al conductor
+    vc_ids = [vc.id for vc in current_user.conductor.vehiculo_conductores]
+    incidente = db.query(models.Incidente).filter(models.Incidente.id == cotizacion.incidente_id, models.Incidente.vehiculoconductor_id.in_(vc_ids)).first()
+    if not incidente:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="El incidente asociado no te pertenece")
+
+    # Actualizar cotización
+    cotizacion.estado = "Aceptada"
+
+    # Rechazar el resto de cotizaciones del incidente
+    db.query(models.Cotizacion).filter(
+        models.Cotizacion.incidente_id == incidente.id, 
+        models.Cotizacion.id != cotizacion_id
+    ).update({"estado": "Rechazada"})
+
+    # Asignar taller al incidente
+    incidente.taller_id = cotizacion.taller_id
+    incidente.estado = "Asignado"
+
+    # Incrementar capacidad del taller
+    taller = db.query(models.Taller).filter(models.Taller.Id == cotizacion.taller_id).first()
+    if taller and taller.Cap is not None:
+        taller.Cap = (taller.Cap or 0) + 1
+
+    db.commit()
+    db.refresh(incidente)
+    
+    # Recargar con relaciones para la respuesta
+    return db.query(models.Incidente).options(
+        joinedload(models.Incidente.evidencias),
+        joinedload(models.Incidente.taller),
+        joinedload(models.Incidente.analisis_ia),
+        joinedload(models.Incidente.cotizaciones).joinedload(models.Cotizacion.taller)
+    ).filter(models.Incidente.id == incidente.id).first()
+
+class EstadoUpdate(BaseModel):
+    estado: str
+
+@router.get("/mantenimientos", response_model=List[schemas.IncidenteDetalle])
+def mantenimientos_taller(
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user)
+):
+    """Devuelve los incidentes asignados al taller del usuario (sea Taller o Mecanico)."""
+    taller_id = None
+    if current_user.taller:
+        taller_id = current_user.taller[0].Id if isinstance(current_user.taller, list) and len(current_user.taller) > 0 else (current_user.taller.Id if not isinstance(current_user.taller, list) else None)
+        if taller_id is None and len(current_user.talleres) > 0:
+            taller_id = current_user.talleres[0].Id
+    elif current_user.mecanico:
+        taller_id = current_user.mecanico.taller_id
+
+    if not taller_id:
+        # Fallback a buscar por `talleres` si es que la relación se llama así
+        if hasattr(current_user, 'talleres') and current_user.talleres:
+            taller_id = current_user.talleres[0].Id
+
+    if not taller_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No perteneces a ningún taller")
+
+    incidentes = (
+        db.query(models.Incidente)
+        .options(
+            joinedload(models.Incidente.evidencias), 
+            joinedload(models.Incidente.taller), 
+            joinedload(models.Incidente.analisis_ia),
+            joinedload(models.Incidente.vehiculoconductor).joinedload(models.VehiculoConductor.conductor),
+            joinedload(models.Incidente.cotizaciones).joinedload(models.Cotizacion.taller)
+        )
+        .filter(
+            models.Incidente.taller_id == taller_id,
+            models.Incidente.estado.in_(["Asignado", "En Camino", "Resuelto"])
+        )
+        .order_by(models.Incidente.id.desc())
+        .all()
+    )
+    return incidentes
+
+@router.patch("/{incidente_id}/estado-taller", response_model=schemas.IncidenteDetalle)
+def actualizar_estado_mantenimiento(
+    incidente_id: int,
+    payload: EstadoUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user)
+):
+    """Actualiza el estado de un incidente (En Camino, Resuelto). Taller y Mecanico."""
+    taller_id = None
+    if current_user.taller:
+        taller_id = current_user.taller[0].Id if isinstance(current_user.taller, list) and len(current_user.taller) > 0 else (current_user.taller.Id if not isinstance(current_user.taller, list) else None)
+        if taller_id is None and hasattr(current_user, 'talleres') and len(current_user.talleres) > 0:
+            taller_id = current_user.talleres[0].Id
+    elif current_user.mecanico:
+        taller_id = current_user.mecanico.taller_id
+
+    if not taller_id:
+        if hasattr(current_user, 'talleres') and current_user.talleres:
+            taller_id = current_user.talleres[0].Id
+
+    if not taller_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No perteneces a ningún taller")
+
+    incidente = db.query(models.Incidente).filter(
+        models.Incidente.id == incidente_id,
+        models.Incidente.taller_id == taller_id
+    ).first()
+
+    if not incidente:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incidente no encontrado o no asignado a tu taller")
+
+    if payload.estado not in ["En Camino", "Resuelto"]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Estado no válido")
+
+    # Si se marca como Resuelto, liberamos cupo del taller
+    if payload.estado == "Resuelto" and incidente.estado != "Resuelto":
+        taller = db.query(models.Taller).filter(models.Taller.Id == taller_id).first()
+        if taller and taller.Cap is not None and taller.Cap > 0:
+            taller.Cap -= 1
+            
+    incidente.estado = payload.estado
+    db.commit()
+    db.refresh(incidente)
+
+    return db.query(models.Incidente).options(
+        joinedload(models.Incidente.evidencias),
+        joinedload(models.Incidente.taller),
+        joinedload(models.Incidente.analisis_ia),
+        joinedload(models.Incidente.vehiculoconductor).joinedload(models.VehiculoConductor.conductor),
+        joinedload(models.Incidente.cotizaciones).joinedload(models.Cotizacion.taller)
+    ).filter(models.Incidente.id == incidente.id).first()
