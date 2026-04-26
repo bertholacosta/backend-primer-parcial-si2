@@ -2,11 +2,13 @@ from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 from .database import engine, Base, get_db
 from . import models
+import os
 
 # Crear todas las tablas en la base de datos
 Base.metadata.create_all(bind=engine)
 
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(
     title="Backend API - Primer Parcial SI2",
@@ -34,6 +36,10 @@ app.include_router(incidentes.router)
 app.include_router(bitacora.router)
 app.include_router(notificaciones.router)
 app.include_router(profile.router)
+
+# Servir archivos estáticos (fotos de incidentes)
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.get("/")
 def read_root():

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Table, Date
+from sqlalchemy import Column, Integer, String, ForeignKey, Table, Date, Text
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -134,7 +134,7 @@ class Evidencia(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     audio = Column(String(2000), nullable=True) 
     descripcion = Column(String(5000), nullable=True)
-    fotos = Column(String(2000), nullable=True)  # Puede ser una trama separada por comas de urls/base64
+    fotos = Column(Text, nullable=True)  # URLs de imágenes separadas por |||
     incidente_id = Column(Integer, ForeignKey('Incidente.id', ondelete="CASCADE"), nullable=False)
 
     incidente = relationship("Incidente", back_populates="evidencias")

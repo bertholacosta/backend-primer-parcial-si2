@@ -116,16 +116,43 @@ def reportar_incidente(
 
     # Crear Evidencia ligada al Incidente
     evidencia_data = payload.evidencia.model_dump() if hasattr(payload.evidencia, 'model_dump') else payload.evidencia.dict()
+    fotos_raw = evidencia_data.get('fotos', '') or ''
+    
+    # Procesar fotos Base64 → archivos en disco
+    fotos_urls = []
+    if fotos_raw and '|||' in fotos_raw or (fotos_raw and len(fotos_raw) > 200):
+        import base64, uuid, os
+        upload_dir = os.path.join("uploads", "incidentes", str(nuevo_incidente.id))
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        partes = fotos_raw.split('|||') if '|||' in fotos_raw else [fotos_raw]
+        for parte in partes:
+            parte = parte.strip()
+            if not parte:
+                continue
+            try:
+                img_bytes = base64.b64decode(parte)
+                filename = f"{uuid.uuid4().hex}.jpg"
+                filepath = os.path.join(upload_dir, filename)
+                with open(filepath, 'wb') as f:
+                    f.write(img_bytes)
+                fotos_urls.append(f"/uploads/incidentes/{nuevo_incidente.id}/{filename}")
+            except Exception:
+                continue
+        fotos_final = '|||'.join(fotos_urls) if fotos_urls else fotos_raw
+    else:
+        fotos_final = fotos_raw
+
     nueva_evidencia = models.Evidencia(
         audio=evidencia_data.get('audio'),
         descripcion=evidencia_data.get('descripcion'),
-        fotos=evidencia_data.get('fotos'),
+        fotos=fotos_final,
         incidente_id=nuevo_incidente.id
     )
     
     db.add(nueva_evidencia)
     db.commit()
-    db.refresh(nuevo_incidente) # Refrescar para traernos la evidencia inyectada en ORM
+    db.refresh(nuevo_incidente)
 
     return nuevo_incidente
 
