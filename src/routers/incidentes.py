@@ -446,12 +446,16 @@ def mantenimientos_taller(
 ):
     """Devuelve los incidentes asignados al taller del usuario (sea Taller o Mecanico)."""
     taller_id = None
-    if current_user.taller:
-        taller_id = current_user.taller[0].Id if isinstance(current_user.taller, list) and len(current_user.taller) > 0 else (current_user.taller.Id if not isinstance(current_user.taller, list) else None)
-        if taller_id is None and len(current_user.talleres) > 0:
+    is_mecanico = False
+
+    if hasattr(current_user, 'talleres') and current_user.talleres:
+        if isinstance(current_user.talleres, list) and len(current_user.talleres) > 0:
             taller_id = current_user.talleres[0].Id
-    elif current_user.mecanico:
+        elif not isinstance(current_user.talleres, list):
+            taller_id = current_user.talleres.Id
+    elif hasattr(current_user, 'mecanico') and current_user.mecanico:
         taller_id = current_user.mecanico.taller_id
+        is_mecanico = True
 
     if not taller_id:
         # Fallback a buscar por `talleres` si es que la relación se llama así
@@ -461,23 +465,70 @@ def mantenimientos_taller(
     if not taller_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No perteneces a ningún taller")
 
-    incidentes = (
-        db.query(models.Incidente)
-        .options(
-            joinedload(models.Incidente.evidencias), 
-            joinedload(models.Incidente.taller), 
-            joinedload(models.Incidente.analisis_ia),
-            joinedload(models.Incidente.vehiculoconductor).joinedload(models.VehiculoConductor.conductor),
-            joinedload(models.Incidente.cotizaciones).joinedload(models.Cotizacion.taller)
-        )
-        .filter(
-            models.Incidente.taller_id == taller_id,
-            models.Incidente.estado.in_(["Asignado", "En Camino", "Resuelto"])
-        )
-        .order_by(models.Incidente.id.desc())
-        .all()
+    query = db.query(models.Incidente).options(
+        joinedload(models.Incidente.evidencias), 
+        joinedload(models.Incidente.taller), 
+        joinedload(models.Incidente.analisis_ia),
+        joinedload(models.Incidente.vehiculoconductor).joinedload(models.VehiculoConductor.conductor),
+        joinedload(models.Incidente.cotizaciones).joinedload(models.Cotizacion.taller),
+        joinedload(models.Incidente.mecanicos)
+    ).filter(
+        models.Incidente.taller_id == taller_id,
+        models.Incidente.estado.in_(["Asignado", "En Camino", "Resuelto"])
     )
+
+    # Si es mecánico, solo ver los que le fueron asignados
+    if is_mecanico and hasattr(current_user, 'mecanico') and current_user.mecanico:
+        query = query.filter(models.Incidente.mecanicos.any(models.Mecanico.id == current_user.mecanico.id))
+
+    incidentes = query.order_by(models.Incidente.id.desc()).all()
     return incidentes
+
+@router.post("/{incidente_id}/asignar-mecanicos", response_model=schemas.IncidenteDetalle)
+def asignar_mecanicos_incidente(
+    incidente_id: int,
+    payload: schemas.AsignarMecanicos,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user)
+):
+    """Asigna múltiples mecánicos a un incidente. Exclusivo para Taller."""
+    taller_id = None
+    if hasattr(current_user, 'talleres') and current_user.talleres:
+        if isinstance(current_user.talleres, list) and len(current_user.talleres) > 0:
+            taller_id = current_user.talleres[0].Id
+        elif not isinstance(current_user.talleres, list):
+            taller_id = current_user.talleres.Id
+            
+    if not taller_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres pueden asignar mecánicos")
+
+    incidente = db.query(models.Incidente).filter(
+        models.Incidente.id == incidente_id,
+        models.Incidente.taller_id == taller_id
+    ).first()
+
+    if not incidente:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incidente no encontrado o no pertenece a tu taller")
+
+    # Obtener los mecánicos válidos
+    mecanicos = db.query(models.Mecanico).filter(
+        models.Mecanico.id.in_(payload.mecanico_ids),
+        models.Mecanico.taller_id == taller_id
+    ).all()
+
+    # Reemplazar la lista de mecánicos asignados
+    incidente.mecanicos = mecanicos
+    db.commit()
+    db.refresh(incidente)
+
+    return db.query(models.Incidente).options(
+        joinedload(models.Incidente.evidencias),
+        joinedload(models.Incidente.taller),
+        joinedload(models.Incidente.analisis_ia),
+        joinedload(models.Incidente.vehiculoconductor).joinedload(models.VehiculoConductor.conductor),
+        joinedload(models.Incidente.cotizaciones).joinedload(models.Cotizacion.taller),
+        joinedload(models.Incidente.mecanicos)
+    ).filter(models.Incidente.id == incidente.id).first()
 
 @router.patch("/{incidente_id}/estado-taller", response_model=schemas.IncidenteDetalle)
 def actualizar_estado_mantenimiento(
@@ -488,11 +539,12 @@ def actualizar_estado_mantenimiento(
 ):
     """Actualiza el estado de un incidente (En Camino, Resuelto). Taller y Mecanico."""
     taller_id = None
-    if current_user.taller:
-        taller_id = current_user.taller[0].Id if isinstance(current_user.taller, list) and len(current_user.taller) > 0 else (current_user.taller.Id if not isinstance(current_user.taller, list) else None)
-        if taller_id is None and hasattr(current_user, 'talleres') and len(current_user.talleres) > 0:
+    if hasattr(current_user, 'talleres') and current_user.talleres:
+        if isinstance(current_user.talleres, list) and len(current_user.talleres) > 0:
             taller_id = current_user.talleres[0].Id
-    elif current_user.mecanico:
+        elif not isinstance(current_user.talleres, list):
+            taller_id = current_user.talleres.Id
+    elif hasattr(current_user, 'mecanico') and current_user.mecanico:
         taller_id = current_user.mecanico.taller_id
 
     if not taller_id:
@@ -528,5 +580,6 @@ def actualizar_estado_mantenimiento(
         joinedload(models.Incidente.taller),
         joinedload(models.Incidente.analisis_ia),
         joinedload(models.Incidente.vehiculoconductor).joinedload(models.VehiculoConductor.conductor),
-        joinedload(models.Incidente.cotizaciones).joinedload(models.Cotizacion.taller)
+        joinedload(models.Incidente.cotizaciones).joinedload(models.Cotizacion.taller),
+        joinedload(models.Incidente.mecanicos)
     ).filter(models.Incidente.id == incidente.id).first()

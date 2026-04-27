@@ -85,9 +85,12 @@ def update_mecanico(request: Request, mecanico_id: int, m_update: schemas.Mecani
 
     # Validar propiedad
     taller = db.query(models.Taller).filter(models.Taller.IdUsuario == current_user.Id).first()
-    if not taller or mecanico.taller_id != taller.Id:
-        if not (current_user.rol and current_user.rol.Nombre == 'Administrador'):
-            raise HTTPException(status_code=403, detail="No puedes editar mecánicos de otros talleres")
+    is_owner_taller = taller and mecanico.taller_id == taller.Id
+    is_admin = current_user.rol and current_user.rol.Nombre == 'Administrador'
+    is_self = hasattr(current_user, 'mecanico') and current_user.mecanico and current_user.mecanico.id == mecanico_id
+
+    if not (is_owner_taller or is_admin or is_self):
+        raise HTTPException(status_code=403, detail="No puedes editar mecánicos de otros talleres")
 
     if m_update.nombre is not None:
         mecanico.nombre = m_update.nombre
@@ -99,6 +102,8 @@ def update_mecanico(request: Request, mecanico_id: int, m_update: schemas.Mecani
         mecanico.extci = m_update.extci
     if m_update.fechanac is not None:
         mecanico.fechanac = m_update.fechanac
+    if m_update.estado is not None:
+        mecanico.estado = m_update.estado
 
     db.commit()
     db.refresh(mecanico)

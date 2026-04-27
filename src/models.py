@@ -58,9 +58,10 @@ class Taller(Base):
     Nombre = Column(String(255), nullable=False)
     Direccion = Column(String(255), nullable=False)
     Coordenadas = Column(String(255))
-    Cap = Column(Integer)
-    Capmax = Column(Integer)
+    Cap = Column(Integer, default=0)
+    Capmax = Column(Integer, default=10)
     IdUsuario = Column(Integer, ForeignKey('Usuario.Id'), nullable=False)
+    balance = Column(Integer, default=0) # Balance en la plataforma (puede ser negativo)
 
     usuario = relationship("Usuario", back_populates="talleres")
     mecanicos = relationship("Mecanico", back_populates="taller")
@@ -114,6 +115,11 @@ class VehiculoConductor(Base):
     vehiculo = relationship("Vehiculo", back_populates="vehiculo_conductores")
     incidentes = relationship("Incidente", back_populates="vehiculoconductor")
 
+class IncidenteMecanico(Base):
+    __tablename__ = 'IncidenteMecanico'
+    incidente_id = Column(Integer, ForeignKey('Incidente.id', ondelete="CASCADE"), primary_key=True)
+    mecanico_id = Column(Integer, ForeignKey('Mecanico.id', ondelete="CASCADE"), primary_key=True)
+
 class Incidente(Base):
     __tablename__ = 'Incidente'
 
@@ -129,6 +135,7 @@ class Incidente(Base):
     taller = relationship("Taller", foreign_keys=[taller_id])
     analisis_ia = relationship("AnalisisIA", uselist=False, back_populates="incidente", cascade="all, delete-orphan")
     cotizaciones = relationship("Cotizacion", back_populates="incidente", cascade="all, delete-orphan")
+    mecanicos = relationship("Mecanico", secondary="IncidenteMecanico", back_populates="incidentes_asignados")
 
 class Evidencia(Base):
     __tablename__ = 'Evidencia'
@@ -150,10 +157,12 @@ class Mecanico(Base):
     nombre = Column(String(255), nullable=False)
     apellidos = Column(String(255), nullable=False)
     fechanac = Column(BigInteger)
+    estado = Column(String(50), default="Disponible")
     taller_id = Column(Integer, ForeignKey('Taller.Id', ondelete="SET NULL"), nullable=True)
 
     usuario = relationship("Usuario", back_populates="mecanico")
     taller = relationship("Taller", back_populates="mecanicos")
+    incidentes_asignados = relationship("Incidente", secondary="IncidenteMecanico", back_populates="mecanicos")
 
 
 class Bitacora(Base):
@@ -205,3 +214,16 @@ class Cotizacion(Base):
 
     incidente = relationship("Incidente", back_populates="cotizaciones")
     taller = relationship("Taller")
+
+class Pago(Base):
+    __tablename__ = 'Pago'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    monto_total = Column(Integer, nullable=False)
+    metodo = Column(String(50), nullable=False) # 'Stripe' o 'Directo'
+    estado = Column(String(50), default="Pendiente") # 'Pendiente', 'Completado'
+    stripe_session_id = Column(String(255), nullable=True)
+    fecha = Column(String(50))
+    incidente_id = Column(Integer, ForeignKey('Incidente.id', ondelete="CASCADE"), nullable=False)
+
+    incidente = relationship("Incidente")

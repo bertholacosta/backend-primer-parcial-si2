@@ -162,6 +162,7 @@ class MecanicoUpdate(BaseModel):
     nombre: Optional[str] = None
     apellidos: Optional[str] = None
     fechanac: Optional[int] = None
+    estado: Optional[str] = None
 
 class MecanicoRegistro(MecanicoBase):
     correo: str
@@ -170,6 +171,7 @@ class MecanicoRegistro(MecanicoBase):
 class MecanicoOut(MecanicoBase):
     id: int
     taller_id: Optional[int] = None
+    estado: str = "Disponible"
 
     class Config:
         from_attributes = True
@@ -269,6 +271,7 @@ class IncidenteDetalle(IncidenteBase):
     taller: Optional[TallerEnIncidente] = None
     analisis_ia: Optional[AnalisisIAEnIncidente] = None
     cotizaciones: List[CotizacionOut] = []
+    mecanicos: List[MecanicoOut] = []
 
     class Config:
         from_attributes = True
@@ -278,6 +281,9 @@ class IncidentePendiente(IncidenteDetalle):
 
 class AsignarTaller(BaseModel):
     taller_id: int
+
+class AsignarMecanicos(BaseModel):
+    mecanico_ids: List[int]
 
 # --- Esquemas para Bitacora ---
 class BitacoraBase(BaseModel):
@@ -329,6 +335,7 @@ class TallerProfileData(BaseModel):
     Coordenadas: Optional[str] = None
     Cap: Optional[int] = None
     Capmax: Optional[int] = None
+    balance: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -342,6 +349,16 @@ class ConductorProfileData(BaseModel):
     class Config:
         from_attributes = True
 
+class MecanicoProfileData(BaseModel):
+    id: Optional[int] = None
+    ci: Optional[int] = None
+    nombre: Optional[str] = None
+    apellidos: Optional[str] = None
+    estado: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
 class ProfileOut(BaseModel):
     Id: int
     Correo: str
@@ -349,6 +366,7 @@ class ProfileOut(BaseModel):
     administrador: Optional[AdminProfileData] = None
     taller: Optional[TallerProfileData] = None
     conductor: Optional[ConductorProfileData] = None
+    mecanico: Optional[MecanicoProfileData] = None
 
     class Config:
         from_attributes = True
@@ -369,8 +387,20 @@ class ProfileUpdate(BaseModel):
     conductor_nombre: Optional[str] = None
     conductor_apellidos: Optional[str] = None
     conductor_fechanac: Optional[date] = None
+    mecanico_estado: Optional[str] = None
 
 class UbicacionUpdate(BaseModel):
     Coordenadas: str
     Direccion: Optional[str] = None
 
+class PagoOut(BaseModel):
+    id: int
+    monto_total: int
+    metodo: str
+    estado: str
+    fecha: Optional[str] = None
+    incidente_id: int
+    stripe_session_id: Optional[str] = None
+
+    class Config:
+        from_attributes = True

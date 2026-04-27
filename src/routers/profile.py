@@ -24,6 +24,7 @@ def get_my_profile(
     admin_data = None
     taller_data = None
     conductor_data = None
+    mecanico_data = None
 
     if current_user.administrador:
         admin_data = schemas.AdminProfileData(
@@ -49,13 +50,23 @@ def get_my_profile(
             Fechanac=current_user.conductor.Fechanac
         )
 
+    if current_user.mecanico:
+        mecanico_data = schemas.MecanicoProfileData(
+            id=current_user.mecanico.id,
+            ci=current_user.mecanico.ci,
+            nombre=current_user.mecanico.nombre,
+            apellidos=current_user.mecanico.apellidos,
+            estado=current_user.mecanico.estado
+        )
+
     return schemas.ProfileOut(
         Id=current_user.Id,
         Correo=current_user.Correo,
         rol_nombre=rol_nombre,
         administrador=admin_data,
         taller=taller_data,
-        conductor=conductor_data
+        conductor=conductor_data,
+        mecanico=mecanico_data
     )
 
 
@@ -109,6 +120,11 @@ def update_my_profile(
             current_user.conductor.Apellidos = profile_data.conductor_apellidos
         if profile_data.conductor_fechanac is not None:
             current_user.conductor.Fechanac = profile_data.conductor_fechanac
+
+    # Actualizar datos de Mecanico
+    if current_user.mecanico:
+        if profile_data.mecanico_estado is not None:
+            current_user.mecanico.estado = profile_data.mecanico_estado
 
     db.commit()
     db.refresh(current_user)
