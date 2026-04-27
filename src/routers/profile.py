@@ -39,7 +39,8 @@ def get_my_profile(
             Direccion=t.Direccion,
             Coordenadas=t.Coordenadas,
             Cap=t.Cap,
-            Capmax=t.Capmax
+            Capmax=t.Capmax,
+            balance=t.balance
         )
 
     if current_user.conductor:

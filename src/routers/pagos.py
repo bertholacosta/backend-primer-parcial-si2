@@ -1,6 +1,7 @@
 import os
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 import datetime
 
@@ -19,6 +20,7 @@ stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "sk_test_51MockTestKeyForDemoApp
 @router.post("/{incidente_id}/stripe")
 def create_stripe_checkout(
     incidente_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.Usuario = Depends(get_current_user)
 ):
@@ -51,8 +53,7 @@ def create_stripe_checkout(
     monto_total = cotizacion.monto
     
     # Crear sesión de stripe
-    # Para efectos del frontend local
-    frontend_url = "http://localhost:4200"
+    backend_url = str(request.base_url).rstrip('/')
     
     try:
         session = stripe.checkout.Session.create(
@@ -69,8 +70,8 @@ def create_stripe_checkout(
                 'quantity': 1,
             }],
             mode='payment',
-            success_url=f'{frontend_url}/pagos/success?session_id={{CHECKOUT_SESSION_ID}}&incidente_id={incidente_id}',
-            cancel_url=f'{frontend_url}/pagos/cancel?incidente_id={incidente_id}',
+            success_url=f'{backend_url}/pagos/stripe-success?session_id={{CHECKOUT_SESSION_ID}}&incidente_id={incidente_id}',
+            cancel_url=f'{backend_url}/pagos/stripe-cancel?incidente_id={incidente_id}',
         )
         
         # Registrar el pago como pendiente en la BD
@@ -196,3 +197,90 @@ def confirmar_pago_stripe(
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/stripe-success", response_class=HTMLResponse)
+def stripe_success_page(
+    session_id: str,
+    incidente_id: int,
+    db: Session = Depends(get_db)
+):
+    """Página de éxito mostrada directamente por el backend."""
+    # Intentar confirmar el pago automáticamente al entrar a la página
+    pago = db.query(models.Pago).filter(
+        models.Pago.stripe_session_id == session_id,
+        models.Pago.incidente_id == incidente_id
+    ).first()
+
+    status_msg = "Procesando..."
+    if pago:
+        try:
+            session = stripe.checkout.Session.retrieve(session_id)
+            if session.payment_status == 'paid':
+                pago.estado = "Completado"
+                incidente = db.query(models.Incidente).filter(models.Incidente.id == pago.incidente_id).first()
+                if incidente:
+                    incidente.estado = "Pagado"
+                    taller = db.query(models.Taller).filter(models.Taller.Id == incidente.taller_id).first()
+                    if taller:
+                        monto_taller = int(pago.monto_total * 0.90)
+                        taller.balance = (taller.balance or 0) + monto_taller
+                db.commit()
+                status_msg = "¡Pago Completado Exitosamente!"
+            else:
+                status_msg = "El pago no fue completado."
+        except:
+            status_msg = "Error al verificar el pago."
+    else:
+        status_msg = "Pago no encontrado."
+
+    return f"""
+    <html>
+        <head>
+            <title>Pago Exitoso</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body {{ font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #0F1523; color: white; }}
+                .card {{ background: #1A2236; padding: 40px; border-radius: 20px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: 90%; }}
+                .icon {{ font-size: 60px; color: #4CAF50; margin-bottom: 20px; }}
+                h1 {{ margin: 0 0 10px 0; color: #4CAF50; }}
+                p {{ color: #ccc; line-height: 1.5; }}
+                .btn {{ display: inline-block; margin-top: 30px; padding: 12px 24px; background: #42A5F5; color: white; text-decoration: none; border-radius: 10px; font-weight: bold; }}
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="icon">✓</div>
+                <h1>{status_msg}</h1>
+                <p>Tu pago ha sido procesado. Ya puedes cerrar esta ventana y volver a la aplicación de conductores.</p>
+                <a href="#" onclick="window.close();" class="btn">Volver a la App</a>
+            </div>
+        </body>
+    </html>
+    """
+
+@router.get("/stripe-cancel", response_class=HTMLResponse)
+def stripe_cancel_page():
+    return """
+    <html>
+        <head>
+            <title>Pago Cancelado</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #0F1523; color: white; }
+                .card { background: #1A2236; padding: 40px; border-radius: 20px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); max-width: 90%; }
+                .icon { font-size: 60px; color: #E53935; margin-bottom: 20px; }
+                h1 { margin: 0 0 10px 0; color: #E53935; }
+                p { color: #ccc; line-height: 1.5; }
+                .btn { display: inline-block; margin-top: 30px; padding: 12px 24px; background: #78909C; color: white; text-decoration: none; border-radius: 10px; font-weight: bold; }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="icon">✕</div>
+                <h1>Pago Cancelado</h1>
+                <p>Has cancelado el proceso de pago. Puedes volver a intentarlo desde la aplicación.</p>
+                <a href="#" onclick="window.close();" class="btn">Cerrar</a>
+            </div>
+        </body>
+    </html>
+    """
