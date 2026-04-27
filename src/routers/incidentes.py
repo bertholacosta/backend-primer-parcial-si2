@@ -150,8 +150,22 @@ def reportar_incidente(
     else:
         fotos_final = fotos_raw
 
+    # Decodificar y guardar audio si existe
+    audio_raw = evidencia_data.get('audio')
+    audio_url = None
+    if audio_raw and len(audio_raw) > 50: # Evitar strings vacíos o cortos
+        try:
+            audio_bytes = base64.b64decode(audio_raw)
+            audio_filename = f"audio_{uuid.uuid4().hex}.m4a"
+            audio_filepath = os.path.join(upload_dir, audio_filename)
+            with open(audio_filepath, 'wb') as f:
+                f.write(audio_bytes)
+            audio_url = f"/uploads/incidentes/{nuevo_incidente.id}/{audio_filename}"
+        except Exception as e_audio:
+            print(f"[Audio] Error guardando archivo: {e_audio}")
+
     nueva_evidencia = models.Evidencia(
-        audio=evidencia_data.get('audio'),
+        audio=audio_url or audio_raw, # Guardamos la URL si se creó el archivo
         descripcion=evidencia_data.get('descripcion'),
         fotos=fotos_final,
         incidente_id=nuevo_incidente.id
@@ -169,10 +183,10 @@ def reportar_incidente(
         audio_raw = evidencia_data.get('audio') or None
         audio_disponible = bool(audio_raw)
 
-        # Pasar las URLs de fotos guardadas en disco para análisis visual
+        # Pasar las URLs de fotos y audio guardadas en disco para análisis multimodal
         resultado_ia = analizar_incidente(
             descripcion=descripcion_incidente,
-            audio_disponible=audio_disponible,
+            audio_url=audio_url,
             fotos_urls=fotos_urls if fotos_urls else None,
         )
 
@@ -181,7 +195,7 @@ def reportar_incidente(
             Clasificacion=resultado_ia.get("Clasificacion"),
             NivelPrioridad=resultado_ia.get("NivelPrioridad"),
             Resumen=resultado_ia.get("Resumen"),
-            TranscripcionAudio=audio_raw,
+            TranscripcionAudio=resultado_ia.get("Transcripcion", audio_raw),
             informacion_valida=resultado_ia.get("informacion_valida", True),
         )
         db.add(analisis)
