@@ -8,6 +8,7 @@ import datetime
 from ..database import get_db
 from .. import models, schemas
 from ..deps import get_current_user
+from ..notificacion_util import crear_notificacion
 
 router = APIRouter(
     prefix="/pagos",
@@ -151,6 +152,18 @@ def pago_directo(
     db.commit()
     db.refresh(nuevo_pago)
     
+    # Notificar al taller sobre el pago realizado
+    try:
+        taller_user_id = incidente.taller.IdUsuario
+        crear_notificacion(
+            db,
+            taller_user_id,
+            "Pago Recibido (Directo)",
+            f"El conductor ha confirmado el pago directo de Bs. {monto_total} por el incidente #{incidente_id}."
+        )
+    except Exception as e_notif:
+        print(f"[Notificación] Error al notificar taller: {e_notif}")
+
     return nuevo_pago
 
 @router.post("/success", response_model=schemas.PagoOut)
@@ -191,6 +204,19 @@ def confirmar_pago_stripe(
 
             db.commit()
             db.refresh(pago)
+
+            # Notificar al taller sobre el pago por Stripe
+            try:
+                taller_user_id = incidente.taller.IdUsuario
+                crear_notificacion(
+                    db,
+                    taller_user_id,
+                    "Pago Recibido (Stripe)",
+                    f"Se ha procesado exitosamente el pago de Bs. {pago.monto_total} por el incidente #{pago.incidente_id}."
+                )
+            except Exception as e_notif:
+                print(f"[Notificación] Error al notificar taller: {e_notif}")
+
             return pago
         else:
             raise HTTPException(status_code=400, detail="El pago en Stripe no fue completado exitosamente.")

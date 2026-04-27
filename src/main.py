@@ -25,7 +25,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from src.routers import auth, users, roles, mecanicos, vehiculos, incidentes, bitacora, notificaciones, profile, ia, pagos
+from src.routers import auth, users, roles, mecanicos, vehiculos, incidentes, bitacora, notificaciones, profile, ia, pagos, reportes
 
 app.include_router(auth.router)
 app.include_router(users.router)
@@ -38,6 +38,7 @@ app.include_router(notificaciones.router)
 app.include_router(profile.router)
 app.include_router(ia.router)
 app.include_router(pagos.router)
+app.include_router(reportes.router)
 
 # Servir archivos estáticos (fotos de incidentes)
 os.makedirs("uploads", exist_ok=True)

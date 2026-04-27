@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Table, Date, Text, BigInteger
+from sqlalchemy import Column, Integer, String, ForeignKey, Table, Date, Text, BigInteger, Boolean
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -65,6 +65,18 @@ class Taller(Base):
 
     usuario = relationship("Usuario", back_populates="talleres")
     mecanicos = relationship("Mecanico", back_populates="taller")
+    servicios = relationship("ServicioTaller", back_populates="taller", cascade="all, delete-orphan")
+
+
+class ServicioTaller(Base):
+    """Catálogo de servicios que ofrece un taller (uno-a-muchos desde Taller)."""
+    __tablename__ = 'ServicioTaller'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nombre = Column(String(100), nullable=False)  # Ej: "Auxilio Eléctrico", "Remolque", "Vulcanización Móvil"
+    taller_id = Column(Integer, ForeignKey('Taller.Id', ondelete='CASCADE'), nullable=False)
+
+    taller = relationship("Taller", back_populates="servicios")
 
 
 class Administrador(Base):
@@ -197,6 +209,7 @@ class AnalisisIA(Base):
     NivelPrioridad = Column(String(50), nullable=True)
     Resumen = Column(Text, nullable=True)
     TranscripcionAudio = Column(Text, nullable=True)
+    informacion_valida = Column(Boolean, nullable=True, default=True)
     incidente_id = Column(Integer, ForeignKey('Incidente.id', ondelete="CASCADE"), unique=True)
 
     incidente = relationship("Incidente", back_populates="analisis_ia")

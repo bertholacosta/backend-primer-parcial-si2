@@ -210,6 +210,17 @@ class Incidente(IncidenteBase):
     class Config:
         from_attributes = True
 
+# --- Esquemas para ServicioTaller ---
+class ServicioTallerOut(BaseModel):
+    id: int
+    nombre: str
+
+    class Config:
+        from_attributes = True
+
+class ServicioTallerCreate(BaseModel):
+    nombre: str
+
 # --- Esquemas para Gestión de Solicitudes ---
 class TallerDisponible(BaseModel):
     Id: int
@@ -219,6 +230,7 @@ class TallerDisponible(BaseModel):
     Cap: Optional[int] = None
     Capmax: Optional[int] = None
     distancia_km: Optional[float] = None
+    servicios: List[ServicioTallerOut] = []
 
     class Config:
         from_attributes = True
@@ -228,6 +240,7 @@ class TallerEnIncidente(BaseModel):
     Nombre: str
     Direccion: str
     Coordenadas: Optional[str] = None
+    servicios: List[ServicioTallerOut] = []
 
     class Config:
         from_attributes = True
@@ -236,9 +249,13 @@ class AnalisisIAEnIncidente(BaseModel):
     Clasificacion: Optional[str] = None
     NivelPrioridad: Optional[str] = None
     Resumen: Optional[str] = None
+    informacion_valida: Optional[bool] = True
 
     class Config:
         from_attributes = True
+
+class ReintentarAnalisisPayload(BaseModel):
+    nueva_descripcion: str
 
 # --- Esquemas para Cotización ---
 class CotizacionBase(BaseModel):

@@ -8,6 +8,7 @@ import math
 from ..database import get_db
 from .. import models, schemas
 from ..deps import get_current_user
+from ..notificacion_util import crear_notificacion
 
 router = APIRouter(
     prefix="/incidentes",
@@ -158,9 +159,136 @@ def reportar_incidente(
     
     db.add(nueva_evidencia)
     db.commit()
+
+    # ── Análisis IA ────────────────────────────────────────────────────────────
+    # Generamos y persistimos el análisis justo después de guardar la evidencia.
+    # Si la IA falla, el incidente ya está guardado y no se pierde nada.
+    try:
+        from ..ai_service import analizar_incidente
+        descripcion_incidente = evidencia_data.get('descripcion') or ""
+        audio_raw = evidencia_data.get('audio') or None
+        audio_disponible = bool(audio_raw)
+
+        # Pasar las URLs de fotos guardadas en disco para análisis visual
+        resultado_ia = analizar_incidente(
+            descripcion=descripcion_incidente,
+            audio_disponible=audio_disponible,
+            fotos_urls=fotos_urls if fotos_urls else None,
+        )
+
+        analisis = models.AnalisisIA(
+            incidente_id=nuevo_incidente.id,
+            Clasificacion=resultado_ia.get("Clasificacion"),
+            NivelPrioridad=resultado_ia.get("NivelPrioridad"),
+            Resumen=resultado_ia.get("Resumen"),
+            TranscripcionAudio=audio_raw,
+            informacion_valida=resultado_ia.get("informacion_valida", True),
+        )
+        db.add(analisis)
+        db.commit()
+        print(f"[AI] AnalisisIA guardado para incidente #{nuevo_incidente.id}: {resultado_ia}")
+    except Exception as e_ia:
+        print(f"[AI] Error al generar/guardar AnalisisIA para incidente #{nuevo_incidente.id}: {e_ia}")
+        db.rollback()  # revertir sólo el commit del análisis; el incidente ya está guardado
+    # ──────────────────────────────────────────────────────────────────────────
+
+
     db.refresh(nuevo_incidente)
 
+    # Notificar a todos los talleres sobre el nuevo incidente
+    try:
+        talleres = db.query(models.Taller).all()
+        for t in talleres:
+            crear_notificacion(
+                db, 
+                t.IdUsuario, 
+                "Nuevo Siniestro Reportado", 
+                f"Se ha reportado un incidente #{nuevo_incidente.id}. Revisa las solicitudes pendientes para ofrecer una cotización."
+            )
+    except Exception as e_notif:
+        print(f"[Notificación] Error al notificar talleres: {e_notif}")
+
     return nuevo_incidente
+
+
+
+
+@router.post("/{incidente_id}/reintentar-analisis", response_model=schemas.IncidenteDetalle)
+def reintentar_analisis(
+    incidente_id: int,
+    payload: schemas.ReintentarAnalisisPayload,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user)
+):
+    """Permite al conductor agregar más descripción y volver a ejecutar el análisis IA."""
+    if not current_user.conductor:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo conductores pueden reintentar el análisis")
+
+    vc_ids = [vc.id for vc in current_user.conductor.vehiculo_conductores]
+    incidente = (
+        db.query(models.Incidente)
+        .options(
+            joinedload(models.Incidente.evidencias),
+            joinedload(models.Incidente.taller),
+            joinedload(models.Incidente.analisis_ia),
+            joinedload(models.Incidente.cotizaciones).joinedload(models.Cotizacion.taller)
+        )
+        .filter(models.Incidente.id == incidente_id, models.Incidente.vehiculoconductor_id.in_(vc_ids))
+        .first()
+    )
+
+    if not incidente:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incidente no encontrado o no te pertenece")
+
+    nueva_desc = payload.nueva_descripcion.strip()
+    if not nueva_desc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La descripción no puede estar vacía")
+
+    # Actualizar la descripción en la evidencia existente
+    if incidente.evidencias:
+        incidente.evidencias[0].descripcion = nueva_desc
+        db.commit()
+
+    # Re-ejecutar análisis IA (incluir las fotos ya guardadas)
+    from ..ai_service import analizar_incidente
+    fotos_existentes = []
+    if incidente.evidencias and incidente.evidencias[0].fotos:
+        fotos_str = incidente.evidencias[0].fotos
+        fotos_existentes = [f for f in fotos_str.split('|||') if f.startswith('/uploads/')]
+    audio_disponible = bool(incidente.evidencias and incidente.evidencias[0].audio)
+    resultado_ia = analizar_incidente(
+        descripcion=nueva_desc,
+        audio_disponible=audio_disponible,
+        fotos_urls=fotos_existentes if fotos_existentes else None,
+    )
+
+    # Actualizar o crear AnalisisIA
+    if incidente.analisis_ia:
+        analisis = incidente.analisis_ia
+        analisis.Clasificacion = resultado_ia.get("Clasificacion")
+        analisis.NivelPrioridad = resultado_ia.get("NivelPrioridad")
+        analisis.Resumen = resultado_ia.get("Resumen")
+        analisis.informacion_valida = resultado_ia.get("informacion_valida", True)
+    else:
+        analisis = models.AnalisisIA(
+            incidente_id=incidente_id,
+            Clasificacion=resultado_ia.get("Clasificacion"),
+            NivelPrioridad=resultado_ia.get("NivelPrioridad"),
+            Resumen=resultado_ia.get("Resumen"),
+            informacion_valida=resultado_ia.get("informacion_valida", True),
+        )
+        db.add(analisis)
+
+    db.commit()
+    print(f"[AI] Análisis re-ejecutado para incidente #{incidente_id}: valido={resultado_ia.get('informacion_valida')}")
+
+    # Recargar y devolver
+    return db.query(models.Incidente).options(
+        joinedload(models.Incidente.evidencias),
+        joinedload(models.Incidente.taller),
+        joinedload(models.Incidente.analisis_ia),
+        joinedload(models.Incidente.cotizaciones).joinedload(models.Cotizacion.taller)
+    ).filter(models.Incidente.id == incidente_id).first()
 
 
 @router.get("/mis-incidentes", response_model=List[schemas.IncidenteDetalle])
@@ -202,14 +330,13 @@ def talleres_disponibles(
     current_user: models.Usuario = Depends(get_current_user)
 ):
     """Lista talleres con capacidad disponible, ordenados por cercanía si se proveen coordenadas."""
-    # Obtener talleres con capacidad disponible (Cap < Capmax)
-    talleres = db.query(models.Taller).all()
+    from sqlalchemy.orm import joinedload as jl
+    talleres = db.query(models.Taller).options(jl(models.Taller.servicios)).all()
 
     resultado = []
     for t in talleres:
         cap = t.Cap or 0
         capmax = t.Capmax or 0
-        # Solo incluir talleres que tengan capacidad (o si no tienen límite definido)
         if capmax > 0 and cap >= capmax:
             continue
 
@@ -230,13 +357,90 @@ def talleres_disponibles(
             Coordenadas=t.Coordenadas,
             Cap=cap,
             Capmax=capmax,
-            distancia_km=distancia
+            distancia_km=distancia,
+            servicios=[schemas.ServicioTallerOut(id=s.id, nombre=s.nombre) for s in t.servicios],
         ))
 
-    # Ordenar por distancia (talleres sin distancia al final)
     resultado.sort(key=lambda x: x.distancia_km if x.distancia_km is not None else 99999)
-
     return resultado
+
+
+# ─── ENDPOINTS DE GESTIÓN DE SERVICIOS DEL TALLER ────────────────────────────
+
+@router.get("/servicios/catalogo")
+def catalogo_servicios():
+    """Devuelve el catálogo de tipos de servicio disponibles."""
+    return [
+        "Mecánica General",
+        "Auxilio Eléctrico",
+        "Vulcanización Móvil",
+        "Remolque",
+        "Chapa y Pintura",
+        "Diagnóstico a Domicilio",
+        "Cerrajero Automotriz",
+        "Cambio de Aceite",
+    ]
+
+
+@router.get("/mis-servicios", response_model=List[schemas.ServicioTallerOut])
+def mis_servicios(
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user)
+):
+    """Devuelve los servicios configurados por el taller autenticado."""
+    if not current_user.talleres:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres pueden ver sus servicios")
+    taller = current_user.talleres[0]
+    servicios = db.query(models.ServicioTaller).filter(models.ServicioTaller.taller_id == taller.Id).all()
+    return servicios
+
+
+@router.post("/mis-servicios", response_model=schemas.ServicioTallerOut, status_code=201)
+def agregar_servicio(
+    payload: schemas.ServicioTallerCreate,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user)
+):
+    """Permite al taller agregar un servicio a su perfil."""
+    if not current_user.talleres:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres pueden gestionar servicios")
+    taller = current_user.talleres[0]
+    nombre = payload.nombre.strip()
+    if not nombre:
+        raise HTTPException(status_code=400, detail="El nombre del servicio no puede estar vacío")
+    # Evitar duplicados
+    existente = db.query(models.ServicioTaller).filter(
+        models.ServicioTaller.taller_id == taller.Id,
+        models.ServicioTaller.nombre == nombre
+    ).first()
+    if existente:
+        raise HTTPException(status_code=409, detail="Este servicio ya está registrado")
+    nuevo = models.ServicioTaller(nombre=nombre, taller_id=taller.Id)
+    db.add(nuevo)
+    db.commit()
+    db.refresh(nuevo)
+    return nuevo
+
+
+@router.delete("/mis-servicios/{servicio_id}", status_code=204)
+def eliminar_servicio(
+    servicio_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.Usuario = Depends(get_current_user)
+):
+    """Permite al taller eliminar uno de sus servicios."""
+    if not current_user.talleres:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo talleres pueden gestionar servicios")
+    taller = current_user.talleres[0]
+    svc = db.query(models.ServicioTaller).filter(
+        models.ServicioTaller.id == servicio_id,
+        models.ServicioTaller.taller_id == taller.Id
+    ).first()
+    if not svc:
+        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    db.delete(svc)
+    db.commit()
+    return None
 
 
 @router.patch("/{incidente_id}/asignar-taller", response_model=schemas.IncidenteDetalle)
@@ -385,6 +589,19 @@ def ofrecer_cotizacion(
     
     db.commit()
     db.refresh(cotizacion)
+
+    # Notificar al conductor sobre la nueva oferta
+    try:
+        conductor_user_id = cotizacion.incidente.vehiculoconductor.conductor.IdUsuario
+        crear_notificacion(
+            db,
+            conductor_user_id,
+            "Nueva Cotización Recibida",
+            f"El taller {cotizacion.taller.Nombre} ha enviado una oferta de Bs. {cotizacion.monto} para tu incidente #{incidente_id}."
+        )
+    except Exception as e_notif:
+        print(f"[Notificación] Error al notificar conductor: {e_notif}")
+
     return cotizacion
 
 @router.post("/cotizaciones/{cotizacion_id}/aceptar", response_model=schemas.IncidenteDetalle)
@@ -428,6 +645,18 @@ def aceptar_cotizacion(
     db.commit()
     db.refresh(incidente)
     
+    # Notificar al taller que su cotización fue aceptada
+    try:
+        taller_user_id = cotizacion.taller.IdUsuario
+        crear_notificacion(
+            db,
+            taller_user_id,
+            "Cotización Aceptada",
+            f"¡Felicidades! Tu oferta para el incidente #{incidente.id} ha sido aceptada. El conductor te espera."
+        )
+    except Exception as e_notif:
+        print(f"[Notificación] Error al notificar taller: {e_notif}")
+
     # Recargar con relaciones para la respuesta
     return db.query(models.Incidente).options(
         joinedload(models.Incidente.evidencias),
@@ -521,6 +750,18 @@ def asignar_mecanicos_incidente(
     db.commit()
     db.refresh(incidente)
 
+    # Notificar a los mecánicos asignados
+    try:
+        for m in mecanicos:
+            crear_notificacion(
+                db,
+                m.id, # El id de Mecanico es el IdUsuario
+                "Nuevo Trabajo Asignado",
+                f"Se te ha asignado al incidente #{incidente.id}. Revisa tus mantenimientos."
+            )
+    except Exception as e_notif:
+        print(f"[Notificación] Error al notificar mecánicos: {e_notif}")
+
     return db.query(models.Incidente).options(
         joinedload(models.Incidente.evidencias),
         joinedload(models.Incidente.taller),
@@ -574,6 +815,22 @@ def actualizar_estado_mantenimiento(
     incidente.estado = payload.estado
     db.commit()
     db.refresh(incidente)
+
+    # Notificar al conductor sobre el cambio de estado
+    try:
+        conductor_user_id = incidente.vehiculoconductor.conductor.IdUsuario
+        msg = f"Tu vehículo ahora está en estado: {payload.estado}."
+        if payload.estado == "Resuelto":
+            msg = "¡Tu vehículo ha sido reparado! Ya puedes pasar a recogerlo o confirmar el servicio."
+            
+        crear_notificacion(
+            db,
+            conductor_user_id,
+            f"Actualización de tu Incidente #{incidente.id}",
+            msg
+        )
+    except Exception as e_notif:
+        print(f"[Notificación] Error al notificar conductor: {e_notif}")
 
     return db.query(models.Incidente).options(
         joinedload(models.Incidente.evidencias),
